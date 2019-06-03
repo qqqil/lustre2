@@ -405,6 +405,7 @@ command_t cmdlist[] = {
 	 "		   [--component-id[=comp_id]|-I[comp_id]]\n"
 	 "		   [--component-flags[=comp_flags]]\n"
 	 "		   [--component-count]\n"
+	 "		   [--extension-size|--ext-size|-z]\n"
 	 "		   [--component-start[=[+-]comp_start]]\n"
 	 "		   [--component-end[=[+-]comp_end]|-E[[+-]comp_end]]\n"
 	 "		   [[!] --mirror-index=[+-]<index> |\n"
@@ -2806,6 +2807,7 @@ static int lfs_setstripe_internal(int argc, char **argv,
 	while ((c = getopt_long(argc, argv,
 				"bc:C:dDE:f:H:i:I:m:N::no:p:L:s:S:vx:y:z:",
 				long_opts, NULL)) >= 0) {
+		size_units = 1;
 		switch (c) {
 		case 0:
 			/* Long options. */
@@ -3834,6 +3836,9 @@ static int lfs_find(int argc, char **argv)
 	{ .val = 'T',	.name = "mdt-count",	.has_arg = required_argument },
 	{ .val = 'u',	.name = "uid",		.has_arg = required_argument },
 	{ .val = 'U',	.name = "user",		.has_arg = required_argument },
+	{ .val = 'z',	.name = "extension-size",
+						.has_arg = required_argument },
+	{ .val = 'z',	.name = "ext-size",	.has_arg = required_argument },
 /* getstripe { .val = 'v', .name = "verbose",	.has_arg = no_argument }, */
 /* getstripe { .val = 'y', .name = "yaml",	.has_arg = no_argument }, */
 	{ .name = NULL } };
@@ -3849,7 +3854,7 @@ static int lfs_find(int argc, char **argv)
 
 	/* when getopt_long_only() hits '!' it returns 1, puts "!" in optarg */
 	while ((c = getopt_long_only(argc, argv,
-			"-0A:b:c:C:D:E:g:G:H:i:L:m:M:n:N:O:Ppqrs:S:t:T:u:U:v",
+			"-0A:b:c:C:D:E:g:G:H:i:L:m:M:n:N:O:Ppqrs:S:t:T:u:U:vz:",
 			long_opts, NULL)) >= 0) {
                 xtime = NULL;
                 xsign = NULL;
@@ -4353,6 +4358,28 @@ err_free:
 			param.fp_check_mdt_count = 1;
 			param.fp_exclude_mdt_count = !!neg_opt;
 			break;
+		case 'z':
+			if (optarg[0] == '+') {
+				param.fp_ext_size_sign = -1;
+				optarg++;
+			} else if (optarg[0] == '-') {
+				param.fp_ext_size_sign =  1;
+				optarg++;
+			}
+
+			ret = llapi_parse_size(optarg, &param.fp_ext_size,
+					       &param.fp_ext_size_units, 0);
+			if (ret) {
+				fprintf(stderr, "error: bad ext-size '%s'\n",
+					optarg);
+				goto err;
+			}
+			param.fp_ext_size /= SEL_UNIT_SIZE;
+			param.fp_ext_size_units /= SEL_UNIT_SIZE;
+			param.fp_check_ext_size = 1;
+			param.fp_exclude_ext_size = !!neg_opt;
+			break;
+
                 default:
                         ret = CMD_HELP;
                         goto err;
@@ -4447,6 +4474,8 @@ static int lfs_getstripe_internal(int argc, char **argv,
 /* find	{ .val = 'U',	.name = "user",		.has_arg = required_argument }*/
 	{ .val = 'v',	.name = "verbose",	.has_arg = no_argument },
 	{ .val = 'y',	.name = "yaml",		.has_arg = no_argument },
+	{ .val = 'z',	.name = "extension-size", .has_arg = no_argument },
+	{ .val = 'z',	.name = "ext-size",	.has_arg = no_argument },
 	{ .name = NULL } };
 	int c, rc;
 	int neg_opt = 0;
@@ -4455,7 +4484,7 @@ static int lfs_getstripe_internal(int argc, char **argv,
 	char *end, *tmp;
 
 	while ((c = getopt_long(argc, argv,
-			"-cdDE::FghiI::LmMNoO:pqrRsSvy",
+			"-cdDE::FghiI::LmMNoO:pqrRsSvyz",
 			long_opts, NULL)) != -1) {
 		if (neg_opt)
 			--neg_opt;
@@ -4714,6 +4743,12 @@ static int lfs_getstripe_internal(int argc, char **argv,
 			break;
 		case 'y':
 			param->fp_yaml = 1;
+			break;
+		case 'z':
+			if (!(param->fp_verbose & VERBOSE_DETAIL)) {
+				param->fp_verbose |= VERBOSE_EXT_SIZE;
+				param->fp_max_depth = 0;
+			}
 			break;
 		default:
 			return CMD_HELP;
